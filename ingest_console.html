@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIH26146 // Bitcoin Traffic Ingestion & Normalization Console</title>
+  <!-- Google Fonts: IBM Plex Mono & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- PapaParse CDN for robust CSV parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --bg-canvas: #07090e;
+      --bg-panel: #0d111a;
+      --bg-card: #131926;
+      --bg-card-hover: #182030;
+      --border-color: #1e293b;
+      --border-accent: #f7931a44;
+      --btc-orange: #f7931a;
+      --btc-orange-glow: rgba(247, 147, 26, 0.25);
+      --text-primary: #e2e8f0;
+      --text-secondary: #8892b0;
+      --text-muted: #53617b;
+      --color-ok: #10b981;
+      --color-warn: #f59e0b;
+      --color-err: #ef4444;
+      --color-blue: #38bdf8;
+      --color-purple: #a855f7;
+      --font-mono: "IBM Plex Mono", "SF Mono", Consolas, Menlo, monospace;
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.45;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg-canvas);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #232f48;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--btc-orange);
+    }
+
+    /* TOP HEADER */
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btc-node-badge {
+      width: 30px;
+      height: 30px;
+      background: var(--btc-orange);
+      color: #000;
+      font-weight: 800;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      box-shadow: 0 0 12px var(--btc-orange-glow);
+    }
+    .header-titles h1 {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header-titles .subtitle {
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+    .node-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--color-ok);
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
+    .status-pulse {
+      width: 7px;
+      height: 7px;
+      background: var(--color-ok);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--color-ok);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    /* STATS STRIP */
+    .stats-strip {
+      background: #090c14;
+      border-bottom: 1px solid var(--border-color);
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      padding: 10px 20px;
+      gap: 16px;
+    }
+    .stat-card {
+      border-left: 2px solid var(--border-color);
+      padding-left: 12px;
+    }
+    .stat-card.accent {
+      border-left-color: var(--btc-orange);
+    }
+    .stat-card.danger {
+      border-left-color: var(--color-err);
+    }
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.6px;
+    }
+    .stat-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 2px;
+      font-family: var(--font-sans);
+    }
+    .stat-val.orange { color: var(--btc-orange); }
+    .stat-val.green { color: var(--color-ok); }
+    .stat-val.red { color: var(--color-err); }
+
+    /* MAIN CONTAINER: TWO PANELS */
+    .main-workspace {
+      display: grid;
+      grid-template-columns: 420px 1fr;
+      flex: 1;
+      height: calc(100vh - 122px);
+      overflow: hidden;
+    }
+
+    /* LEFT PANEL */
+    .left-panel {
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow-y: auto;
+      padding: 16px;
+      gap: 16px;
+    }
+
+    /* Dropzone */
+    .dropzone {
+      border: 2px dashed var(--border-color);
+      border-radius: 6px;
+      background: rgba(19, 25, 38, 0.4);
+      padding: 24px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--btc-orange);
+      background: rgba(247, 147, 26, 0.05);
+    }
+    .drop-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+      color: var(--btc-orange);
+    }
+    .drop-text {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .drop-subtext {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Sample Buttons Grid */
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--btc-orange);
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .btn-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 8px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--btc-orange);
+      color: #fff;
+    }
+    .btn-reset {
+      grid-column: span 2;
+      background: #1c151b;
+      border-color: #4a2128;
+      color: #f87171;
+    }
+    .btn-reset:hover {
+      background: #2a1920;
+      border-color: #ef4444;
+      color: #fff;
+    }
+
+    /* TERMINAL LOG PANEL */
+    .terminal-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #05070a;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      overflow: hidden;
+      min-height: 250px;
+    }
+    .terminal-header {
+      background: #0e131d;
+      border-bottom: 1px solid var(--border-color);
+      padding: 6px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+    .terminal-dots {
+      display: flex;
+      gap: 5px;
+    }
+    .terminal-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ef4444; }
+    .dot-yellow { background: #f59e0b; }
+    .dot-green { background: #10b981; }
+
+    .terminal-body {
+      flex: 1;
+      padding: 10px;
+      font-size: 11px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .log-entry {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      word-break: break-all;
+    }
+    .log-ts {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .log-tag {
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .tag-ok { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .tag-warn { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .tag-err { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .tag-info { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); }
+
+    /* RIGHT PANEL */
+    .right-panel {
+      background: var(--bg-canvas);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+    }
+    .toolbar {
+      padding: 12px 18px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .search-box {
+      flex: 1;
+      position: relative;
+      max-width: 420px;
+    }
+    .search-input {
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 6px 12px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      outline: none;
+    }
+    .search-input:focus {
+      border-color: var(--btc-orange);
+    }
+    .filters-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    select.filter-select {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    /* DATA TABLE */
+    .table-container {
+      flex: 1;
+      overflow: auto;
+      padding: 0;
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    table.data-table th {
+      background: #0c101a;
+      color: var(--text-secondary);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    table.data-table td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #141b2b;
+      color: var(--text-primary);
+    }
+    table.data-table tr:hover td {
+      background: rgba(247, 147, 26, 0.04);
+      cursor: pointer;
+    }
+    
+    /* BADGES & PILLS */
+    .tx-hash {
+      color: var(--color-blue);
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: underline dotted;
+    }
+    .tx-hash:hover {
+      color: var(--btc-orange);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .pill-normal {
+      background: rgba(148, 163, 184, 0.1);
+      color: #94a3b8;
+      border: 1px solid #334155;
+    }
+    .pill-peel {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid #b45309;
+    }
+    .pill-coinjoin {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid #7e22ce;
+    }
+    .pill-cluster {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid #0369a1;
+    }
+    .pill-stat {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border: 1px solid #b91c1c;
+    }
+    .script-badge {
+      background: #192032;
+      border: 1px solid #28334e;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      color: #cbd5e1;
+    }
+
+    /* MODAL DRAWER FOR RECORD INSPECTION */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.active {
+      display: flex;
+    }
+    .modal-window {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-top: 3px solid var(--btc-orange);
+      width: 750px;
+      max-width: 95vw;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      border-radius: 6px;
+      box-shadow: 0 10px 35px rgba(0,0,0,0.8);
+    }
+    .modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h3 {
+      font-family: var(--font-sans);
+      font-size: 14px;
+      color: #fff;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .modal-close:hover {
+      color: #fff;
+    }
+    .modal-body {
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      background: var(--bg-card);
+      padding: 12px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+    }
+    .kv-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .kv-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+    .kv-value {
+      font-size: 12px;
+      color: #fff;
+      font-family: var(--font-mono);
+      word-break: break-all;
+    }
+    .list-box {
+      background: #070a10;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 10px;
+      max-height: 140px;
+      overflow-y: auto;
+      font-size: 11px;
+    }
+    .list-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid #131926;
+    }
+    .list-row:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand-section">
+      <div class="btc-node-badge">&#8383;</div>
+      <div class="header-titles">
+        <h1>SIH26146 // BITCOIN TRAFFIC INGESTION NODE</h1>
+        <div class="subtitle">Multi-Format Parser (CSV / JSON / XML) &bull; Unified Schema Normalizer &bull; Step 2</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="http://localhost:8501" target="_blank" style="background:var(--btc-orange); color:#000; font-family:var(--font-mono); font-size:11px; font-weight:700; padding:6px 12px; border-radius:4px; text-decoration:none; display:flex; align-items:center; gap:6px; box-shadow:0 0 10px var(--btc-orange-glow); transition:all 0.15s;">
+        &#9889; OPEN SOC DASHBOARD (STREAMLIT)
+      </a>
+      <div class="node-status">
+        <div class="status-pulse"></div>
+        <span>INGESTION PIPELINE ONLINE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- TOP STATS STRIP -->
+  <div class="stats-strip">
+    <div class="stat-card">
+      <div class="stat-label">Total Rows Read</div>
+      <div class="stat-val" id="stat-read">0</div>
+    </div>
+    <div class="stat-card accent">
+      <div class="stat-label">Rows Normalized</div>
+      <div class="stat-val orange" id="stat-norm">0</div>
+    </div>
+    <div class="stat-card danger">
+      <div class="stat-label">Rows Skipped (Errors)</div>
+      <div class="stat-val red" id="stat-skip">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Detected Format</div>
+      <div class="stat-val" id="stat-fmt">NONE</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Unique Wallets</div>
+      <div class="stat-val" id="stat-wallets">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Suspicious Entities</div>
+      <div class="stat-val green" id="stat-anomalies">0</div>
+    </div>
+  </div>
+
+  <!-- MAIN TWO-PANEL WORKSPACE -->
+  <div class="main-workspace">
+    
+    <!-- LEFT PANEL: INGESTION CONTROLS & LIVE TERMINAL -->
+    <div class="left-panel">
+      
+      <!-- Drag & Drop Zone -->
+      <div class="dropzone" id="dropzone">
+        <div class="drop-icon">&#8650;</div>
+        <div class="drop-text">Drop Bitcoin Traffic File Here</div>
+        <div class="drop-subtext">Supports .CSV, .JSON, or .XML files</div>
+        <input type="file" id="file-input" accept=".csv,.json,.xml" style="display:none;" />
+      </div>
+
+      <!-- Quick Sample Buttons -->
+      <div class="section-title">
+        <span>Try Sample Feeds</span>
+        <span style="font-size:9px; color:var(--text-muted);">No File Required</span>
+      </div>
+      <div class="btn-grid">
+        <button class="btn" id="btn-sample-csv">&#128196; Load Sample CSV</button>
+        <button class="btn" id="btn-sample-json">&#128196; Load Sample JSON</button>
+        <button class="btn" id="btn-sample-xml">&#128196; Load Sample XML</button>
+        <button class="btn" id="btn-sample-corrupt" style="border-color:#b91c1c; color:#fca5a5;">&#9888; Test Bad / Corrupt</button>
+        <button class="btn btn-reset" id="btn-clear">&#8635; Reset & Clear State</button>
+      </div>
+
+      <!-- Live Terminal Log -->
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+          </div>
+          <span>ingestion-daemon.log</span>
+        </div>
+        <div class="terminal-body" id="terminal-body">
+          <div class="log-entry">
+            <span class="log-ts">[00:00:00]</span>
+            <span class="log-tag tag-info">READY</span>
+            <span>Awaiting data feed via dropzone or sample buttons...</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT PANEL: NORMALIZED RECORDS TABLE -->
+    <div class="right-panel">
+      
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-box">
+          <input type="text" id="search-input" class="search-input" placeholder="Search by TXID, IP, Address, or ASN..." />
+        </div>
+        <div class="filters-group">
+          <select id="filter-pattern" class="filter-select">
+            <option value="ALL">All Patterns</option>
+            <option value="NORMAL">Normal Traffic</option>
+            <option value="PEELING_CHAIN">Peeling Chains</option>
+            <option value="COINJOIN_MIXING">CoinJoin / Mixing</option>
+            <option value="COMMON_INPUT_CLUSTER">Common-Input Clusters</option>
+            <option value="STATISTICAL">Statistical Anomalies</option>
+          </select>
+          <button class="btn" id="btn-export-json" title="Download Normalized JSON Array">&#8681; Export JSON</button>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>TXID</th>
+              <th>Timestamp (UTC)</th>
+              <th>Source Node (IP:Port)</th>
+              <th>Geo / ASN</th>
+              <th>Script</th>
+              <th>I/O Topology</th>
+              <th>Fee (BTC)</th>
+              <th>Volume (USD)</th>
+              <th>Pattern Label</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr>
+              <td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">
+                No transactions ingested yet. Drop a file or click a sample button on the left.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- INSPECTION MODAL -->
+  <div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal-window">
+      <div class="modal-header">
+        <h3 id="modal-txid-title">Transaction Inspector</h3>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body-content">
+        <!-- Injected via JS -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // STATE & REPOSITORIES
+    // =========================================================================
+    const state = {
+      transactions: [],
+      uniqueWallets: new Set(),
+      readCount: 0,
+      normCount: 0,
+      skipCount: 0,
+      detectedFormat: 'NONE'
+    };
+
+    // DOM Elements
+    const elRead = document.getElementById('stat-read');
+    const elNorm = document.getElementById('stat-norm');
+    const elSkip = document.getElementById('stat-skip');
+    const elFmt = document.getElementById('stat-fmt');
+    const elWallets = document.getElementById('stat-wallets');
+    const elAnomalies = document.getElementById('stat-anomalies');
+    const elTerminal = document.getElementById('terminal-body');
+    const elTableBody = document.getElementById('table-body');
+    const elSearch = document.getElementById('search-input');
+    const elFilterPattern = document.getElementById('filter-pattern');
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+
+    // =========================================================================
+    // TERMINAL LOGGING UTILITIES
+    // =========================================================================
+    function logMessage(tag, text) {
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      
+      const now = new Date().toTimeString().split(' ')[0];
+      let tagClass = 'tag-info';
+      if (tag === 'OK') tagClass = 'tag-ok';
+      if (tag === 'WARN') tagClass = 'tag-warn';
+      if (tag === 'ERR') tagClass = 'tag-err';
+
+      entry.innerHTML = `
+        <span class="log-ts">[${now}]</span>
+        <span class="log-tag ${tagClass}">${tag}</span>
+        <span>${escapeHtml(text)}</span>
+      `;
+      elTerminal.appendChild(entry);
+      elTerminal.scrollTop = elTerminal.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // =========================================================================
+    // PARSING & NORMALIZATION ENGINE (Matches Python ingest.py)
+    // =========================================================================
+    function parseArrayField(val) {
+      if (val === null || val === undefined) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'number') return [val];
+
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (!trimmed) return [];
+        if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('(') && trimmed.endsWith(')'))) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) return parsed;
+          } catch (e) {
+            return trimmed.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+          }
+        }
+        if (trimmed.includes(',')) {
+          return trimmed.split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+        }
+        return [trimmed];
+      }
+      return [val];
+    }
+
+    function normalizeRecord(raw, rowIdx) {
+      // 1. TXID
+      const txid = String(raw.txid || '').trim().toLowerCase();
+      if (!txid || txid.length < 8) {
+        throw new Error(`Row ${rowIdx}: Missing or malformed 'txid'`);
+      }
+
+      // 2. Timestamp
+      const rawTs = raw.timestamp;
+      if (rawTs === null || rawTs === undefined || rawTs === '') {
+        throw new Error(`Row ${rowIdx}: Missing required field 'timestamp'`);
+      }
+      const timestamp = parseInt(rawTs, 10);
+      if (isNaN(timestamp) || timestamp <= 0) {
+        throw new Error(`Row ${rowIdx}: Invalid timestamp value "${rawTs}"`);
+      }
+
+      let dtUtc = raw.datetime_utc;
+      if (!dtUtc) {
+        try {
+          dtUtc = new Date(timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+        } catch (e) {
+          dtUtc = '1970-01-01 00:00:00';
+        }
+      }
+
+      // 3. Inputs & Outputs
+      const inAddrs = parseArrayField(raw.input_addresses);
+      const inAmts = parseArrayField(raw.input_amounts);
+      const outAddrs = parseArrayField(raw.output_addresses);
+      const outAmts = parseArrayField(raw.output_amounts);
+
+      if (!inAddrs || inAddrs.length === 0) {
+        throw new Error(`Row ${rowIdx}: Transaction has 0 input addresses`);
+      }
+      if (!outAddrs || outAddrs.length === 0) {
+        throw new Error(`Row ${rowIdx}: Transaction has 0 output addresses`);
+      }
+
+      const inputs = inAddrs.map((addr, idx) => ({
+        address: String(addr).trim(),
+        amount_btc: parseFloat(inAmts[idx]) || 0.0
+      }));
+
+      const outputs = outAddrs.map((addr, idx) => ({
+        address: String(addr).trim(),
+        amount_btc: parseFloat(outAmts[idx]) || 0.0
+      }));
+
+      // 4. Financials
+      const feeBtc = Math.max(0.0, parseFloat(raw.fee_btc) || 0.0);
+      const btcPriceUsd = Math.max(0.0, parseFloat(raw.btc_price_usd) || 60000.0);
+      const totalOutBtc = outputs.reduce((acc, x) => acc + x.amount_btc, 0);
+      const volumeUsd = parseFloat(raw.volume_usd) || Math.round(totalOutBtc * btcPriceUsd * 100) / 100;
+      const feeUsd = parseFloat(raw.fee_usd) || Math.round(feeBtc * btcPriceUsd * 10000) / 10000;
+
+      return {
+        txid,
+        timestamp,
+        datetime_utc: dtUtc,
+        src_ip: String(raw.src_ip || '0.0.0.0').trim(),
+        dst_ip: String(raw.dst_ip || '0.0.0.0').trim(),
+        src_port: parseInt(raw.src_port, 10) || 8333,
+        dst_port: parseInt(raw.dst_port, 10) || 8333,
+        geo_country: String(raw.geo_country || 'UNKNOWN').trim().toUpperCase(),
+        asn: String(raw.asn || 'UNKNOWN').trim(),
+        script_type: String(raw.script_type || 'P2WPKH').trim().toUpperCase(),
+        inputs,
+        outputs,
+        input_count: inputs.length,
+        output_count: outputs.length,
+        fee_btc: feeBtc,
+        btc_price_usd: btcPriceUsd,
+        volume_usd: volumeUsd,
+        fee_usd: feeUsd,
+        pattern_label: String(raw.pattern_label || 'NORMAL').trim()
+      };
+    }
+
+    // =========================================================================
+    // MULTI-FORMAT PROCESSORS
+    // =========================================================================
+    function processRawRecords(records, formatName) {
+      state.detectedFormat = formatName.toUpperCase();
+      logMessage('INFO', `Starting ingestion of ${records.length} raw records [${state.detectedFormat}]`);
+
+      let newNorm = 0;
+      let newSkip = 0;
+
+      records.forEach((raw, idx) => {
+        state.readCount++;
+        try {
+          const norm = normalizeRecord(raw, idx + 1);
+          state.transactions.push(norm);
+          state.normCount++;
+          newNorm++;
+
+          // Track unique wallets
+          norm.inputs.forEach(i => state.uniqueWallets.add(i.address));
+          norm.outputs.forEach(o => state.uniqueWallets.add(o.address));
+
+          if (norm.pattern_label !== 'NORMAL') {
+            logMessage('WARN', `Anomaly [${norm.pattern_label}] ingested: ${norm.txid.substring(0, 12)}...`);
+          } else if (newNorm <= 5) {
+            logMessage('OK', `Normalized Tx: ${norm.txid.substring(0, 12)}... (${norm.inputs.length} in, ${norm.outputs.length} out)`);
+          }
+        } catch (err) {
+          state.skipCount++;
+          newSkip++;
+          logMessage('ERR', err.message);
+        }
+      });
+
+      logMessage('INFO', `Batch Finished: Ingested=${newNorm}, Skipped=${newSkip}`);
+      updateStatsUI();
+      renderTable();
+    }
+
+    // XML Parser
+    function parseXmlFeed(xmlString) {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+      const txNodes = xmlDoc.querySelectorAll("transaction, tx");
+      const records = [];
+
+      txNodes.forEach(node => {
+        const rec = {};
+        Array.from(node.children).forEach(child => {
+          const tag = child.tagName.toLowerCase();
+          if (tag === 'inputs' || tag === 'input_addresses') {
+            const addrs = [];
+            const amts = [];
+            Array.from(child.children).forEach(item => {
+              const a = item.getAttribute('address') || item.textContent;
+              const amt = item.getAttribute('amount') || '0.0';
+              if (a) {
+                addrs.push(a.trim());
+                amts.push(parseFloat(amt) || 0.0);
+              }
+            });
+            rec.input_addresses = addrs;
+            rec.input_amounts = amts;
+          } else if (tag === 'outputs' || tag === 'output_addresses') {
+            const addrs = [];
+            const amts = [];
+            Array.from(child.children).forEach(item => {
+              const a = item.getAttribute('address') || item.textContent;
+              const amt = item.getAttribute('amount') || '0.0';
+              if (a) {
+                addrs.push(a.trim());
+                amts.push(parseFloat(amt) || 0.0);
+              }
+            });
+            rec.output_addresses = addrs;
+            rec.output_amounts = amts;
+          } else {
+            rec[child.tagName] = child.textContent;
+          }
+        });
+        records.push(rec);
+      });
+
+      return records;
+    }
+
+    // File Ingestion Handler
+    function handleFile(file) {
+      const name = file.name.toLowerCase();
+      logMessage('INFO', `Reading local file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const content = e.target.result;
+        
+        // Check if user dropped Kaggle price CSV (Timestamp, Open, High, Low, Close)
+        const firstLine = content.split(/\r?\n/)[0].toLowerCase();
+        if ((firstLine.includes('open') || firstLine.includes('close') || firstLine.includes('price')) && !firstLine.includes('txid')) {
+          logMessage('WARN', 'Detected 1-Minute BTC/USD Price CSV (Market price data).');
+          logMessage('INFO', 'Auto-synthesizing transactions grounded in these market price points...');
+
+          // Parse price lines
+          const lines = content.split(/\r?\n/).filter(l => l.trim().length > 0);
+          const genTransactions = [];
+          const scriptTypes = ['P2WPKH', 'Taproot', 'P2SH', 'P2PKH'];
+          const countries = ['US', 'DE', 'IN', 'SG', 'NL', 'GB'];
+          const asns = ['AS16509 Amazon AWS', 'AS24940 Hetzner', 'AS13335 Cloudflare', 'AS9498 Airtel'];
+
+          // Generate a batch of transactions matching the price points
+          const maxRows = Math.min(lines.length - 1, 100);
+          for (let i = 1; i <= maxRows; i++) {
+            const parts = lines[i].split(',');
+            const ts = parseInt(parts[0], 10) || (1704067200 + i * 60);
+            const closePrice = parseFloat(parts[4]) || 45000.0;
+            const randHex = () => Math.random().toString(16).substring(2, 10);
+            const txid = Array.from({length: 8}, randHex).join('');
+
+            const script = scriptTypes[i % scriptTypes.length];
+            const inAmt = Math.round((0.05 + Math.random() * 0.8) * 10000) / 10000;
+            const fee = 0.00012;
+            const outAmt = Math.round((inAmt - fee) * 10000) / 10000;
+
+            const isPeel = (i % 12 === 0);
+            const isMix = (i % 15 === 0);
+
+            genTransactions.push({
+              txid: txid,
+              timestamp: ts,
+              datetime_utc: new Date(ts * 1000).toISOString().replace('T', ' ').substring(0, 19),
+              src_ip: `185.${(i * 7) % 250}.${(i * 13) % 250}.12`,
+              dst_ip: `54.210.${(i * 3) % 250}.99`,
+              src_port: 8333 + (i % 100),
+              dst_port: 8333,
+              geo_country: countries[i % countries.length],
+              asn: asns[i % asns.length],
+              script_type: script,
+              input_addresses: [`bc1q_synth_in_${i}`],
+              output_addresses: [`bc1q_synth_out_${i}`],
+              input_amounts: [inAmt],
+              output_amounts: [outAmt],
+              fee_btc: fee,
+              btc_price_usd: closePrice,
+              volume_usd: Math.round(outAmt * closePrice * 100) / 100,
+              fee_usd: Math.round(fee * closePrice * 100) / 100,
+              pattern_label: isPeel ? 'PEELING_CHAIN' : (isMix ? 'COINJOIN_MIXING' : 'NORMAL')
+            });
+          }
+
+          processRawRecords(genTransactions, 'CSV (Auto-Synthesized from Prices)');
+          return;
+        }
+
+        // Lightweight offline CSV fallback if CDN is blocked or air-gapped
+        const parseCsvOffline = (csvText) => {
+          if (window.Papa) {
+            Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+              complete: (results) => processRawRecords(results.data, 'CSV')
+            });
+            return;
+          }
+          // Simple offline CSV fallback parser
+          const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
+          if (lines.length < 2) return;
+          const headers = lines[0].split(',').map(h => h.trim().replace(/^['"]|['"]$/g, ''));
+          const rows = [];
+          for (let i = 1; i < lines.length; i++) {
+            // Regex handles quotes with commas
+            const regex = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
+            const values = [];
+            let match;
+            while ((match = regex.exec(lines[i])) !== null) {
+              let val = match[1];
+              if (val === undefined) break;
+              val = val.replace(/^"|"$/g, '').replace(/""/g, '"').trim();
+              values.push(val);
+              if (regex.lastIndex >= lines[i].length) break;
+            }
+            if (values.length > 0) {
+              const obj = {};
+              headers.forEach((h, idx) => { obj[h] = values[idx] || ''; });
+              rows.push(obj);
+            }
+          }
+          processRawRecords(rows, 'CSV (Offline Parser)');
+        };
+
+        if (name.endsWith('.csv')) {
+          parseCsvOffline(content);
+        } else if (name.endsWith('.json')) {
+          try {
+            const data = JSON.parse(content);
+            const arr = Array.isArray(data) ? data : [data];
+            processRawRecords(arr, 'JSON');
+          } catch (err) {
+            logMessage('ERR', `JSON Parse Failure: ${err.message}`);
+          }
+        } else if (name.endsWith('.xml')) {
+          try {
+            const records = parseXmlFeed(content);
+            processRawRecords(records, 'XML');
+          } catch (err) {
+            logMessage('ERR', `XML Parse Failure: ${err.message}`);
+          }
+        } else {
+          // Sniff content
+          const trimmed = content.trim();
+          if (trimmed.startsWith('<')) {
+            processRawRecords(parseXmlFeed(trimmed), 'XML');
+          } else if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+            processRawRecords(JSON.parse(trimmed), 'JSON');
+          } else {
+            parseCsvOffline(content);
+          }
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // =========================================================================
+    // UI RENDERING & TABLE UPDATES
+    // =========================================================================
+    function updateStatsUI() {
+      elRead.textContent = state.readCount.toLocaleString();
+      elNorm.textContent = state.normCount.toLocaleString();
+      elSkip.textContent = state.skipCount.toLocaleString();
+      elFmt.textContent = state.detectedFormat;
+      elWallets.textContent = state.uniqueWallets.size.toLocaleString();
+
+      const suspiciousCount = state.transactions.filter(t => t.pattern_label !== 'NORMAL').length;
+      elAnomalies.textContent = suspiciousCount.toLocaleString();
+    }
+
+    function getPatternPillHtml(pattern) {
+      if (pattern === 'NORMAL') {
+        return `<span class="pill pill-normal">NORMAL</span>`;
+      }
+      if (pattern.includes('PEELING')) {
+        return `<span class="pill pill-peel">&#9889; ${escapeHtml(pattern)}</span>`;
+      }
+      if (pattern.includes('COINJOIN') || pattern.includes('MIX')) {
+        return `<span class="pill pill-coinjoin">&#10022; ${escapeHtml(pattern)}</span>`;
+      }
+      if (pattern.includes('CLUSTER')) {
+        return `<span class="pill pill-cluster">&#9878; ${escapeHtml(pattern)}</span>`;
+      }
+      return `<span class="pill pill-stat">&#9888; ${escapeHtml(pattern)}</span>`;
+    }
+
+    function renderTable() {
+      const q = elSearch.value.trim().toLowerCase();
+      const patternFilter = elFilterPattern.value;
+
+      const filtered = state.transactions.filter(tx => {
+        if (patternFilter !== 'ALL') {
+          if (patternFilter === 'STATISTICAL' && !tx.pattern_label.startsWith('STATISTICAL')) return false;
+          if (patternFilter !== 'STATISTICAL' && !tx.pattern_label.includes(patternFilter)) return false;
+        }
+        if (!q) return true;
+        return (
+          tx.txid.toLowerCase().includes(q) ||
+          tx.src_ip.includes(q) ||
+          tx.asn.toLowerCase().includes(q) ||
+          tx.inputs.some(i => i.address.toLowerCase().includes(q)) ||
+          tx.outputs.some(o => o.address.toLowerCase().includes(q))
+        );
+      });
+
+      if (filtered.length === 0) {
+        elTableBody.innerHTML = `
+          <tr>
+            <td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">
+              No records match the current search or filters.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      const rowsHtml = filtered.slice(0, 200).map((tx, idx) => {
+        const shortTx = tx.txid.substring(0, 14) + '...';
+        return `
+          <tr data-index="${idx}">
+            <td><span class="tx-hash" onclick="openInspector('${tx.txid}')" title="Click to Inspect">${shortTx}</span></td>
+            <td>${escapeHtml(tx.datetime_utc)}</td>
+            <td><span style="color:#38bdf8;">${escapeHtml(tx.src_ip)}</span>:${tx.src_port} &rarr; ${tx.dst_port}</td>
+            <td><strong>${escapeHtml(tx.geo_country)}</strong> <span style="color:var(--text-muted); font-size:10px;">(${escapeHtml(tx.asn.split(' ')[0])})</span></td>
+            <td><span class="script-badge">${escapeHtml(tx.script_type)}</span></td>
+            <td>${tx.input_count} in / ${tx.output_count} out</td>
+            <td style="color:#f59e0b;">${tx.fee_btc.toFixed(6)}</td>
+            <td>$${tx.volume_usd.toLocaleString()}</td>
+            <td>${getPatternPillHtml(tx.pattern_label)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      elTableBody.innerHTML = rowsHtml;
+    }
+
+    // =========================================================================
+    // MODAL INSPECTOR
+    // =========================================================================
+    function openInspector(txid) {
+      const tx = state.transactions.find(t => t.txid === txid);
+      if (!tx) return;
+
+      document.getElementById('modal-txid-title').textContent = `Transaction // ${tx.txid.substring(0, 24)}...`;
+
+      const inHtml = tx.inputs.map(i => `
+        <div class="list-row">
+          <span style="color:#38bdf8;">${escapeHtml(i.address)}</span>
+          <span style="color:#f59e0b;">${i.amount_btc.toFixed(6)} BTC</span>
+        </div>
+      `).join('');
+
+      const outHtml = tx.outputs.map(o => `
+        <div class="list-row">
+          <span style="color:#10b981;">${escapeHtml(o.address)}</span>
+          <span style="color:#f59e0b;">${o.amount_btc.toFixed(6)} BTC</span>
+        </div>
+      `).join('');
+
+      document.getElementById('modal-body-content').innerHTML = `
+        <div class="kv-grid">
+          <div class="kv-item"><span class="kv-label">TXID</span><span class="kv-value">${escapeHtml(tx.txid)}</span></div>
+          <div class="kv-item"><span class="kv-label">UTC Timestamp</span><span class="kv-value">${escapeHtml(tx.datetime_utc)} (${tx.timestamp})</span></div>
+          <div class="kv-item"><span class="kv-label">Source Node</span><span class="kv-value">${escapeHtml(tx.src_ip)}:${tx.src_port} (${escapeHtml(tx.geo_country)})</span></div>
+          <div class="kv-item"><span class="kv-label">ASN Information</span><span class="kv-value">${escapeHtml(tx.asn)}</span></div>
+          <div class="kv-item"><span class="kv-label">Script Type</span><span class="kv-value">${escapeHtml(tx.script_type)}</span></div>
+          <div class="kv-item"><span class="kv-label">Pattern Detection</span><span class="kv-value">${getPatternPillHtml(tx.pattern_label)}</span></div>
+          <div class="kv-item"><span class="kv-label">Miner Fee</span><span class="kv-value">${tx.fee_btc} BTC ($${tx.fee_usd})</span></div>
+          <div class="kv-item"><span class="kv-label">Market Value</span><span class="kv-value">$${tx.volume_usd.toLocaleString()} (@ $${tx.btc_price_usd.toLocaleString()}/BTC)</span></div>
+        </div>
+
+        <div>
+          <div class="section-title" style="margin-bottom:6px;">Inputs (${tx.inputs.length})</div>
+          <div class="list-box">${inHtml}</div>
+        </div>
+
+        <div>
+          <div class="section-title" style="margin-bottom:6px;">Outputs (${tx.outputs.length})</div>
+          <div class="list-box">${outHtml}</div>
+        </div>
+      `;
+
+      document.getElementById('modal-backdrop').classList.add('active');
+    }
+
+    document.getElementById('modal-close').onclick = () => {
+      document.getElementById('modal-backdrop').classList.remove('active');
+    };
+    document.getElementById('modal-backdrop').onclick = (e) => {
+      if (e.target.id === 'modal-backdrop') {
+        document.getElementById('modal-backdrop').classList.remove('active');
+      }
+    };
+
+    // =========================================================================
+    // EMBEDDED SAMPLES FOR INSTANT TESTABILITY
+    // =========================================================================
+    const SAMPLES = {
+      csv: `txid,timestamp,datetime_utc,src_ip,dst_ip,src_port,dst_port,geo_country,asn,script_type,input_addresses,output_addresses,input_amounts,output_amounts,fee_btc,btc_price_usd,volume_usd,fee_usd,pattern_label
+3f7a1c890123456789abcdef0123456789abcdef0123456789abcdef01234567,1704067200,2024-01-01 00:00:00,104.24.113.175,88.198.24.12,54120,8333,US,"AS13335 Cloudflare",P2WPKH,"[""bc1qtest1a"",""bc1qtest1b""]","[""bc1qout1""]","[0.5, 0.5]","[0.9998]","0.0002",42500.0,42491.5,8.5,NORMAL
+8a9b0c1d2e3f0123456789abcdef0123456789abcdef0123456789abcdef0123,1704067300,2024-01-01 00:01:40,54.210.45.12,136.243.10.5,49230,8333,US,"AS16509 Amazon AWS",Taproot,"[""bc1p_peel_origin""]","[""bc1p_cashout_hop1"",""bc1p_change_hop1""]","[12.5]","[0.25, 12.2498]","0.0002",42510.0,520743.0,8.5,PEELING_CHAIN
+4b5c6d7e8f9a0123456789abcdef0123456789abcdef0123456789abcdef0124,1704067400,2024-01-01 00:03:20,54.210.45.12,136.243.10.5,49231,8333,US,"AS16509 Amazon AWS",Taproot,"[""bc1p_change_hop1""]","[""bc1p_cashout_hop2"",""bc1p_change_hop2""]","[12.2498]","[0.25, 11.9996]","0.0002",42512.0,510103.0,8.5,PEELING_CHAIN`,
+
+      json: [
+        {
+          "txid": "e1f2a3b4c5d60123456789abcdef0123456789abcdef0123456789abcdef01",
+          "timestamp": 1704067500,
+          "datetime_utc": "2024-01-01 00:05:00",
+          "src_ip": "159.65.20.11",
+          "dst_ip": "51.254.12.80",
+          "src_port": 32014,
+          "dst_port": 8333,
+          "geo_country": "DE",
+          "asn": "AS24940 Hetzner Online GmbH",
+          "script_type": "P2WPKH",
+          "input_addresses": ["bc1q_mix_user1", "bc1q_mix_user2", "bc1q_mix_user3"],
+          "output_addresses": ["bc1q_mix_out1", "bc1q_mix_out2", "bc1q_mix_out3", "bc1q_change1"],
+          "input_amounts": [0.12, 0.15, 0.11],
+          "output_amounts": [0.10, 0.10, 0.10, 0.0792],
+          "fee_btc": 0.0008,
+          "btc_price_usd": 42520.0,
+          "volume_usd": 16123.58,
+          "fee_usd": 34.01,
+          "pattern_label": "COINJOIN_MIXING"
+        },
+        {
+          "txid": "d1e2f3a4b5c60123456789abcdef0123456789abcdef0123456789abcdef02",
+          "timestamp": 1704067600,
+          "datetime_utc": "2024-01-01 00:06:40",
+          "src_ip": "34.120.55.80",
+          "dst_ip": "88.198.14.99",
+          "src_port": 28100,
+          "dst_port": 8333,
+          "geo_country": "US",
+          "asn": "AS15169 Google LLC",
+          "script_type": "Taproot",
+          "input_addresses": ["bc1p_whale_treasury"],
+          "output_addresses": ["bc1p_whale_coldstorage"],
+          "input_amounts": [1250.0004],
+          "output_amounts": [1250.0],
+          "fee_btc": 0.0004,
+          "btc_price_usd": 42525.0,
+          "volume_usd": 53156250.0,
+          "fee_usd": 17.01,
+          "pattern_label": "STATISTICAL_WHALE"
+        }
+      ],
+
+      xml: `<?xml version="1.0" encoding="UTF-8"?>
+<transactions>
+  <transaction>
+    <txid>7a8b9c0d1e2f0123456789abcdef0123456789abcdef0123456789abcdef01</txid>
+    <timestamp>1704067700</timestamp>
+    <datetime_utc>2024-01-01 00:08:20</datetime_utc>
+    <src_ip>182.72.10.45</src_ip>
+    <dst_ip>125.16.88.9</dst_ip>
+    <src_port>60124</src_port>
+    <dst_port>8333</dst_port>
+    <geo_country>IN</geo_country>
+    <asn>AS9498 BHARTI Airtel Ltd.</asn>
+    <script_type>P2SH</script_type>
+    <fee_btc>0.00025</fee_btc>
+    <btc_price_usd>42530.0</btc_price_usd>
+    <volume_usd>106325.0</volume_usd>
+    <fee_usd>10.63</fee_usd>
+    <pattern_label>COMMON_INPUT_CLUSTER</pattern_label>
+    <inputs>
+      <input address="3cluster_sybil_w1" amount="1.2"/>
+      <input address="3cluster_sybil_w2" amount="0.8"/>
+      <input address="3cluster_sybil_w3" amount="0.5"/>
+    </inputs>
+    <outputs>
+      <output address="3cluster_sweep_dest" amount="2.49975"/>
+    </outputs>
+  </transaction>
+</transactions>`,
+
+      corrupt: [
+        { "txid": "", "timestamp": 1704067800, "input_addresses": ["1A"], "output_addresses": ["1B"] },
+        { "txid": "bad_ts_0001", "timestamp": "NOT_A_NUMBER", "input_addresses": ["1A"], "output_addresses": ["1B"] },
+        { "txid": "bad_empty_inputs_0002", "timestamp": 1704067900, "input_addresses": [], "output_addresses": ["1B"] }
+      ]
+    };
+
+    // Button Listeners
+    document.getElementById('btn-sample-csv').onclick = () => {
+      Papa.parse(SAMPLES.csv, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (res) => processRawRecords(res.data, 'CSV')
+      });
+    };
+
+    document.getElementById('btn-sample-json').onclick = () => {
+      processRawRecords(SAMPLES.json, 'JSON');
+    };
+
+    document.getElementById('btn-sample-xml').onclick = () => {
+      processRawRecords(parseXmlFeed(SAMPLES.xml), 'XML');
+    };
+
+    document.getElementById('btn-sample-corrupt').onclick = () => {
+      processRawRecords(SAMPLES.corrupt, 'CORRUPT_TEST');
+    };
+
+    document.getElementById('btn-clear').onclick = () => {
+      state.transactions = [];
+      state.uniqueWallets.clear();
+      state.readCount = 0;
+      state.normCount = 0;
+      state.skipCount = 0;
+      state.detectedFormat = 'NONE';
+      elTerminal.innerHTML = '';
+      logMessage('INFO', 'State reset. All buffers cleared.');
+      updateStatsUI();
+      renderTable();
+    };
+
+    document.getElementById('btn-export-json').onclick = () => {
+      if (state.transactions.length === 0) {
+        alert('No normalized transactions to export.');
+        return;
+      }
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.transactions, null, 2));
+      const a = document.createElement('a');
+      a.setAttribute("href", dataStr);
+      a.setAttribute("download", "normalized_transactions.json");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+
+    // Filter & Search
+    elSearch.oninput = () => renderTable();
+    elFilterPattern.onchange = () => renderTable();
+
+    // Drag & Drop
+    dropzone.onclick = () => fileInput.click();
+    fileInput.onchange = (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleFile(e.target.files[0]);
+      }
+    };
+    dropzone.ondragover = (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    };
+    dropzone.ondragleave = () => dropzone.classList.remove('dragover');
+    dropzone.ondrop = (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    };
+
+  </script>
+</body>
+</html>

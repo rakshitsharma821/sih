@@ -1,0 +1,30 @@
+# Environment and local configuration
+.env
+.venv/
+venv/
+env/
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Local runtime and generated analysis artifacts
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.gpickle
+
+# Editor and OS files
+.history/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
