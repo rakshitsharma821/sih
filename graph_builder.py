@@ -119,7 +119,7 @@ class ChainSentinelGraphBuilder:
                 pattern_label=row['pattern_label']
             )
 
-            # Add IP node and BROADCAST_FROM edge
+            # Add Source IP node and BROADCAST_FROM edge
             src_ip = row['src_ip']
             if src_ip and src_ip != "0.0.0.0":
                 if not self.graph.has_node(src_ip):
@@ -133,7 +133,26 @@ class ChainSentinelGraphBuilder:
                     row['txid'],
                     src_ip,
                     edge_type="BROADCAST_FROM",
-                    timestamp=row['timestamp']
+                    timestamp=row['timestamp'],
+                    port=row.get('src_port')
+                )
+
+            # Add Destination IP node and RELAYED_TO edge
+            dst_ip = row['dst_ip']
+            if dst_ip and dst_ip != "0.0.0.0":
+                if not self.graph.has_node(dst_ip):
+                    self.graph.add_node(
+                        dst_ip,
+                        node_type="ip_address",
+                        geo_country=row['geo_country'],
+                        asn=row['asn']
+                    )
+                self.graph.add_edge(
+                    row['txid'],
+                    dst_ip,
+                    edge_type="RELAYED_TO",
+                    timestamp=row['timestamp'],
+                    port=row.get('dst_port')
                 )
 
         # Group inputs by txid for Common-Input-Ownership Heuristic

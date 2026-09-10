@@ -43,20 +43,21 @@ def main():
              AI-Powered Bitcoin Transaction Intelligence (SIH26146)
     """)
 
+    py = sys.executable
     # Step 1: Synthetic Dataset Generation
     if not os.path.exists("transactions.csv"):
-        run_cmd("python generate_dataset.py --count 8000", "STEP 1: Generating Synthetic Bitcoin Hybrid Dataset")
+        run_cmd(f'"{py}" generate_dataset.py --count 8000', "STEP 1: Generating Synthetic Bitcoin Hybrid Dataset")
     else:
         print("[i] STEP 1: Found existing transactions.csv. Skipping generation.")
 
     # Step 2: Ingestion & Relational SQLite Persistence
-    run_cmd("python ingest.py --input transactions.csv --db bitcoin_traffic.db", "STEP 2: Ingesting & Normalizing into SQLite Database")
+    run_cmd(f'"{py}" ingest.py --input transactions.csv --db bitcoin_traffic.db', "STEP 2: Ingesting & Normalizing into SQLite Database")
 
     # Step 3: Graph Construction & Heuristics
-    run_cmd("python graph_builder.py --db bitcoin_traffic.db --out graph.gpickle", "STEP 3: Building MultiDiGraph & Union-Find Clustering")
+    run_cmd(f'"{py}" graph_builder.py --db bitcoin_traffic.db --out graph.gpickle', "STEP 3: Building MultiDiGraph & Union-Find Clustering")
 
     # Step 4 & 5: AI/ML Detection & Alert Generation
-    run_cmd("python alert_generator.py --db bitcoin_traffic.db --graph graph.gpickle --out alerts.json --top-n 150", "STEP 4 & 5: Executing 4 ML Modules & Alert Explainability")
+    run_cmd(f'"{py}" alert_generator.py --db bitcoin_traffic.db --graph graph.gpickle --out alerts.json --top-n 150', "STEP 4 & 5: Executing 4 ML Modules & Alert Explainability")
 
     print("\n" + "="*70)
     print("ALL INTELLIGENCE PIPELINE STEPS (1-5) COMPLETED SUCCESSFULLY!")

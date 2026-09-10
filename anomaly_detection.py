@@ -33,9 +33,11 @@ try:
     from sklearn.ensemble import IsolationForest
     from sklearn.preprocessing import RobustScaler, MinMaxScaler
     from sklearn.neural_network import MLPRegressor
+    import joblib
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
+    joblib = None
 
 
 class TransactionAnomalyDetector:
@@ -191,11 +193,19 @@ class TransactionAnomalyDetector:
         print(f"[+] Anomaly Detection Complete: Flagged {n_flagged:,} transactions ({n_flagged / len(df_out) * 100:.1f}%).")
         return df_out
 
-    def save_results(self, out_csv: str = "transaction_anomalies.csv"):
-        """Exports anomaly detections to CSV."""
+    def save_results(self, out_csv: str = "transaction_anomalies.csv",
+                     model_path: str = "isolation_forest.joblib",
+                     scaler_path: str = "feature_scaler.joblib"):
+        """Exports anomaly detections to CSV and trained models to joblib files."""
         if self.df_results is not None:
             self.df_results.to_csv(out_csv, index=False)
             print(f"[+] Saved anomaly detection results to: {out_csv}")
+        if joblib is not None and self.iso_model is not None:
+            joblib.dump(self.iso_model, model_path)
+            print(f"[+] Exported Isolation Forest model to: {model_path}")
+        if joblib is not None and self.scaler is not None:
+            joblib.dump(self.scaler, scaler_path)
+            print(f"[+] Exported Feature Scaler to: {scaler_path}")
 
 
 def run_anomaly_detection(db_path: str = "bitcoin_traffic.db",

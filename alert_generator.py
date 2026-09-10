@@ -37,6 +37,7 @@ import entity_clustering
 import anomaly_detection
 import pattern_detection
 import risk_scoring
+from explainability import ShapForensicExplainer
 
 
 class AlertGenerator:
@@ -234,8 +235,28 @@ class AlertGenerator:
 
         # Sort descending by confidence score
         compiled_alerts.sort(key=lambda x: x["confidence_score"], reverse=True)
-        self.alerts = compiled_alerts[:top_n]
+        top_alerts = compiled_alerts[:top_n]
 
+        # Compute genuine SHAP feature attributions for top alerts
+        print(f"[*] Generating SHAP feature attributions for top {len(top_alerts)} alerts...")
+        try:
+            explainer = ShapForensicExplainer()
+            top_txids = [a["txid"] for a in top_alerts]
+            df_alert_txs = self.df_anomalies[self.df_anomalies["txid"].isin(top_txids)]
+            shap_exps = explainer.explain_transactions(df_alert_txs, top_k=3)
+
+            for a in top_alerts:
+                tx_shap = shap_exps.get(a["txid"], [])
+                a["shap_drivers"] = tx_shap
+                a["evidence_links"]["shap_drivers"] = tx_shap
+                if tx_shap:
+                    drivers_str = ", ".join([f"{d['label']} ({d['shap_value']:+.3f})" for d in tx_shap])
+                    a["explanation"] += f" | Key Anomaly Drivers (SHAP TreeExplainer): {drivers_str}."
+            print(f"[+] Successfully computed SHAP explanations for {len(shap_exps)} alerted transactions.")
+        except Exception as e:
+            print(f"[!] Warning: SHAP computation encountered an issue ({e}); alerts retained without SHAP.")
+
+        self.alerts = top_alerts
         print(f"\n[+] Generated {len(self.alerts):,} high-priority intelligence alerts (Top {top_n}).")
         return self.alerts
 
@@ -246,7 +267,7 @@ class AlertGenerator:
 
         print(f"[*] Exporting alerts to disk...")
 
-        # 1. JSON Export (with nested evidence links)
+        # 1. JSON Export (with nested evidence links and SHAP explanations)
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(self.alerts, f, indent=2)
         print(f"    [1/2] Exported JSON: {out_json} ({len(self.alerts)} structured alerts)")
@@ -254,6 +275,7 @@ class AlertGenerator:
         # 2. CSV Export
         csv_rows = []
         for a in self.alerts:
+            shap_str = "; ".join([f"{d['label']} ({d['shap_value']:+.3f})" for d in a.get("shap_drivers", [])])
             csv_rows.append({
                 "alert_id": a["alert_id"],
                 "txid": a["txid"],
@@ -265,6 +287,7 @@ class AlertGenerator:
                 "asn": a["asn"],
                 "datetime_utc": a["datetime_utc"],
                 "explanation": a["explanation"],
+                "shap_drivers": shap_str,
                 "evidence_json": json.dumps(a["evidence_links"])
             })
 
