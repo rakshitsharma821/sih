@@ -2,18 +2,31 @@ import os
 import sys
 import json
 import sqlite3
-import pandas as pd
+from pathlib import Path
 from typing import Optional, List, Dict, Any
+import pandas as pd
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import networkx as nx
 
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "bitcoin_traffic.db"
+GRAPH_PATH = BASE_DIR / "graph.gpickle"
+ALERTS_PATH = BASE_DIR / "alerts.json"
+PATTERNS_PATH = BASE_DIR / "detected_patterns.csv"
+FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+INDEX_HTML = FRONTEND_DIST / "index.html"
+ASSETS_DIR = FRONTEND_DIST / "assets"
+
 app = FastAPI(
     title="ChainSentinel Forensics API",
     description="Offline Local Intelligence API for Bitcoin Transaction Traffic Forensics",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 app.add_middleware(
@@ -24,11 +37,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_PATH = "bitcoin_traffic.db"
-GRAPH_PATH = "graph.gpickle"
-
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -36,7 +46,7 @@ def get_db():
 _GRAPH = None
 def load_graph():
     global _GRAPH
-    if _GRAPH is None and os.path.exists(GRAPH_PATH):
+    if _GRAPH is None and GRAPH_PATH.is_file():
         try:
             import pickle
             with open(GRAPH_PATH, "rb") as f:
@@ -45,14 +55,19 @@ def load_graph():
             print(f"Error loading graph: {e}")
     return _GRAPH
 
-@app.get("/api/health")
+@app.get("/health", tags=["System"])
+def health():
+    """Root health check endpoint for monitoring/Render health checks."""
+    return {"status": "ok"}
+
+@app.get("/api/health", tags=["System"])
 def health_check():
     return {"status": "online", "mode": "local_offline", "version": "1.0.0"}
 
 @app.get("/api/metrics")
 def get_metrics():
     """System-wide summary metrics for SOC overview dashboard."""
-    if not os.path.exists(DB_PATH):
+    if not DB_PATH.is_file():
         return {"error": "Database not found"}
         
     conn = get_db()
@@ -68,16 +83,16 @@ def get_metrics():
     total_volume = round(volume_res or 0, 2)
     
     alert_count = 0
-    if os.path.exists("alerts.json"):
-        with open("alerts.json", "r") as f:
+    if ALERTS_PATH.is_file():
+        with open(ALERTS_PATH, "r", encoding="utf-8") as f:
             alerts_data = json.load(f)
             alert_count = len(alerts_data)
             
     peeling_count = 64
     coinjoin_count = 200
-    if os.path.exists("detected_patterns.csv"):
+    if PATTERNS_PATH.is_file():
         try:
-            df_pat = pd.read_csv("detected_patterns.csv")
+            df_pat = pd.read_csv(PATTERNS_PATH)
             col = "detected_pattern" if "detected_pattern" in df_pat.columns else "pattern_type"
             peeling_count = int((df_pat[col] == "PEELING_CHAIN").sum())
             coinjoin_count = int((df_pat[col] == "COINJOIN_MIXING").sum())
@@ -111,9 +126,9 @@ def get_metrics():
 
 @app.get("/api/alerts")
 def get_alerts(severity: Optional[str] = None, limit: int = 150):
-    if not os.path.exists("alerts.json"):
+    if not ALERTS_PATH.is_file():
         return []
-    with open("alerts.json", "r") as f:
+    with open(ALERTS_PATH, "r", encoding="utf-8") as f:
         alerts = json.load(f)
         
     normalized = []
@@ -136,7 +151,7 @@ def get_alerts(severity: Optional[str] = None, limit: int = 150):
 
 @app.get("/api/wallet/{address}")
 def investigate_wallet(address: str):
-    if not os.path.exists(DB_PATH):
+    if not DB_PATH.is_file():
         raise HTTPException(status_code=404, detail="Database not found")
         
     conn = get_db()
@@ -367,7 +382,7 @@ def get_subgraph(txid: Optional[str] = None, address: Optional[str] = None, max_
 @app.get("/api/transactions")
 def get_transactions(limit: int = 50, offset: int = 0, pattern: Optional[str] = None):
     """Return paginated normalized transactions for the dataset inspector."""
-    if not os.path.exists(DB_PATH):
+    if not DB_PATH.is_file():
         return {"total": 0, "transactions": []}
     conn = get_db()
     c = conn.cursor()
@@ -394,13 +409,15 @@ def trigger_generate_dataset(num_tx: int = 5000):
     """Trigger the hybrid synthetic dataset generator directly from the UI."""
     import subprocess
     cmd = [sys.executable, "generate_dataset.py", "--num-tx", str(num_tx)]
-    if os.path.exists("btcusd_1-min_data.csv"):
-        cmd.extend(["--kaggle-csv", "btcusd_1-min_data.csv"])
+    kaggle_csv = BASE_DIR / "btcusd_1-min_data.csv"
+    if kaggle_csv.is_file():
+        cmd.extend(["--kaggle-csv", str(kaggle_csv)])
     
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
         # Also run ingest to refresh database
-        subprocess.run([sys.executable, "ingest.py", "--file", "transactions.csv"], capture_output=True, text=True)
+        tx_csv = BASE_DIR / "transactions.csv"
+        subprocess.run([sys.executable, "ingest.py", "--file", str(tx_csv)], capture_output=True, text=True)
         return {
             "status": "success", 
             "message": f"Successfully generated {num_tx} transactions and ingested to database.",
@@ -409,20 +426,70 @@ def trigger_generate_dataset(num_tx: int = 5000):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Serve React static build directly from FastAPI (Single Command Execution!)
-frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
-if os.path.exists(frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
+# -----------------------------------------------------------------------------
+# FRONTEND STATIC ASSETS & REACT SPA ROUTING (frontend/dist)
+# -----------------------------------------------------------------------------
+if ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
-    @app.get("/{full_path:path}")
-    async def serve_react_app(full_path: str):
-        if full_path.startswith("api"):
-            raise HTTPException(status_code=404, detail="API endpoint not found")
-        index_file = os.path.join(frontend_dist, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        return {"error": "Frontend build not found"}
+@app.get("/", include_in_schema=False)
+async def serve_root():
+    """Serves the React dashboard index.html at root GET /."""
+    if INDEX_HTML.is_file():
+        return FileResponse(str(INDEX_HTML))
+    return {
+        "status": "ok",
+        "message": "ChainSentinel backend API is running. Frontend build not found at frontend/dist/index.html.",
+        "docs": "/docs",
+        "health": "/health",
+        "api": "/api/metrics"
+    }
+
+@app.get("/favicon.svg", include_in_schema=False)
+async def serve_favicon():
+    fav = FRONTEND_DIST / "favicon.svg"
+    if fav.is_file():
+        return FileResponse(str(fav))
+    raise HTTPException(status_code=404, detail="favicon.svg not found")
+
+@app.get("/icons.svg", include_in_schema=False)
+async def serve_icons():
+    ico = FRONTEND_DIST / "icons.svg"
+    if ico.is_file():
+        return FileResponse(str(ico))
+    raise HTTPException(status_code=404, detail="icons.svg not found")
+
+EXCLUDED_SPA_PREFIXES = ("api", "docs", "redoc", "openapi.json", "health", "assets")
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa_fallback(full_path: str):
+    """
+    Client-side routing fallback:
+    Any non-API, non-system path falls back to frontend/dist/index.html.
+    Never intercepts /api/*, /docs*, /redoc*, /openapi.json, /health, or /assets/*.
+    """
+    normalized_path = full_path.strip("/")
+    first_segment = normalized_path.split("/")[0] if normalized_path else ""
+
+    # Never intercept backend APIs, documentation, health endpoints, or static assets
+    if first_segment in EXCLUDED_SPA_PREFIXES:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+
+    # If the request matches a file directly inside frontend/dist, serve it directly
+    direct_file = FRONTEND_DIST / normalized_path
+    if direct_file.is_file():
+        return FileResponse(str(direct_file))
+
+    # Otherwise fall back to index.html for React client-side routing
+    if INDEX_HTML.is_file():
+        return FileResponse(str(INDEX_HTML))
+
+    raise HTTPException(
+        status_code=404,
+        detail="Frontend build not found at frontend/dist/index.html"
+    )
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("api:app", host="0.0.0.0", port=port)
