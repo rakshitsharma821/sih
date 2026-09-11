@@ -224,6 +224,7 @@ def get_alerts(severity: Optional[str] = None, limit: int = 150):
 
 @app.get("/api/wallet/{address}")
 def investigate_wallet(address: str):
+    address = address.strip()
     if not DB_PATH.is_file():
         raise HTTPException(status_code=404, detail="Database not found")
         
