@@ -247,9 +247,11 @@ export default function App() {
       <div className="sticky top-0 z-50 bg-[#0b0f19]/95 backdrop-blur border-b border-slate-800 shadow-md">
         <header className="px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl">
-              ₿
-            </div>
+            <img 
+              src="/logo.svg" 
+              alt="ChainSentinel Bitcoin Logo" 
+              className="h-10 w-10 rounded-xl shadow-lg shadow-amber-500/20 object-cover cursor-pointer hover:scale-105 transition-transform" 
+            />
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-lg tracking-wider text-slate-100">CHAINSENTINEL</span>
