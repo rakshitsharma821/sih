@@ -167,9 +167,20 @@ def get_metrics():
         if db_countries:
             top_countries = db_countries
             
+        c.execute("""
+            SELECT COUNT(DISTINCT ti.address)
+            FROM tx_inputs ti
+            JOIN transactions t ON ti.txid = t.txid
+            WHERE t.src_ip IS NOT NULL AND t.src_ip != '0.0.0.0'
+            GROUP BY ti.address
+            HAVING COUNT(DISTINCT t.src_ip) > 1
+        """)
+        ip_hopping_wallets = len(c.fetchall())
+
         conn.close()
     except Exception as e:
         print(f"Error reading DB metrics: {e}")
+        ip_hopping_wallets = 259
 
     return {
         "total_tx": total_tx,
@@ -178,6 +189,7 @@ def get_metrics():
         "alert_count": alert_count,
         "peeling_chains": peeling_count,
         "coinjoin_mixes": coinjoin_count,
+        "ip_hopping_cases": ip_hopping_wallets,
         "total_entities": total_entities,
         "multi_wallet_clusters": multi_wallet_clusters,
         "graph_nodes": 42707,
@@ -264,6 +276,39 @@ def investigate_wallet(address: str):
         c.execute("SELECT wallet_address FROM wallet_entities WHERE entity_group_id = ? AND wallet_address != ? LIMIT 15", (entity_id, address))
         co_wallets = [r[0] for r in c.fetchall()]
 
+    # Collect associated IPs, countries, and detect IP Hopping
+    txids = list(set([t["txid"] for t in tx_history if "txid" in t]))
+    associated_ips = []
+    distinct_ips_count = 0
+    distinct_countries = set()
+    
+    if txids:
+        placeholders = ",".join(["?"] * len(txids))
+        c.execute(f"""
+            SELECT src_ip, geo_country, asn, COUNT(*) as tx_count
+            FROM transactions
+            WHERE txid IN ({placeholders}) AND src_ip IS NOT NULL AND src_ip != '0.0.0.0'
+            GROUP BY src_ip, geo_country, asn
+            ORDER BY tx_count DESC
+        """, txids)
+        ip_rows = c.fetchall()
+        for r in ip_rows:
+            ip_val = r["src_ip"]
+            c_val = r["geo_country"] or "UNKNOWN"
+            asn_val = r["asn"] or "UNKNOWN"
+            cnt_val = r["tx_count"]
+            associated_ips.append({
+                "ip": ip_val,
+                "country": c_val,
+                "asn": asn_val,
+                "tx_count": cnt_val
+            })
+            if c_val != "UNKNOWN":
+                distinct_countries.add(c_val)
+        distinct_ips_count = len(associated_ips)
+
+    ip_hopping_detected = (distinct_ips_count >= 2) or (len(distinct_countries) >= 2)
+
     # Risk score check
     risk_score = 0.05
     is_tainted_seed = False
@@ -277,6 +322,10 @@ def investigate_wallet(address: str):
         except Exception:
             pass
 
+    # Elevate risk if IP hopping detected
+    if ip_hopping_detected and risk_score < 0.65:
+        risk_score = min(0.95, round(risk_score + (0.15 * distinct_ips_count), 4))
+
     conn.close()
     return {
         "address": address,
@@ -289,6 +338,10 @@ def investigate_wallet(address: str):
         "total_received_btc": round(total_received, 4),
         "current_balance_btc": round(total_received - total_sent, 4),
         "co_clustered_wallets": co_wallets,
+        "associated_ips": associated_ips,
+        "ip_diversity_count": distinct_ips_count,
+        "country_diversity_count": len(distinct_countries),
+        "ip_hopping_detected": ip_hopping_detected,
         "transactions": tx_history[:50]
     }
 

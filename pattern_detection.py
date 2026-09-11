@@ -201,6 +201,52 @@ class PatternDetector:
         print(f"[+] Found {len(chains):,} Peeling Chains encompassing {len(results):,} individual transactions.")
         return results
 
+    def detect_ip_hopping(self, min_distinct_ips: int = 2) -> List[Dict[str, Any]]:
+        """
+        Detects IP Hopping & Proxy/VPN Rotation:
+        Flags wallets that broadcast transactions across multiple distinct IP addresses
+        or countries, indicating automated proxy rotation, Tor routing, or VPN churn.
+        """
+        print(f"[*] Scanning for IP Hopping / Proxy Rotation (min distinct IPs: {min_distinct_ips})...")
+        results = []
+
+        # Join inputs with transactions to find src_ip and geo_country per wallet
+        df_wallet_tx = pd.merge(
+            self.df_inputs[["txid", "address"]],
+            self.df_tx[["txid", "src_ip", "geo_country", "asn", "timestamp"]],
+            on="txid",
+            how="inner"
+        )
+        df_wallet_tx = df_wallet_tx[df_wallet_tx["src_ip"] != "0.0.0.0"]
+
+        # Group by wallet address
+        for wallet, group in df_wallet_tx.groupby("address"):
+            distinct_ips = [ip for ip in group["src_ip"].unique() if ip and ip != "0.0.0.0"]
+            distinct_countries = [c for c in group["geo_country"].unique() if c and c != "UNKNOWN"]
+            
+            if len(distinct_ips) >= min_distinct_ips:
+                top_ips_str = ", ".join(list(distinct_ips)[:4])
+                country_str = ", ".join(distinct_countries[:3]) if distinct_countries else "Multiple Locations"
+                evidence = (
+                    f"IP Hopping / Proxy Churn detected: Wallet {wallet[:12]}... transacted across "
+                    f"{len(distinct_ips)} distinct IPs ({top_ips_str}) spanning {len(distinct_countries) or 1} country regions ({country_str}), "
+                    f"indicating automated proxy rotation, VPN server switching, or Tor exit node routing."
+                )
+                
+                # Flag all associated transactions for this wallet
+                for txid in group["txid"].unique():
+                    results.append({
+                        "txid": txid,
+                        "detected_pattern": "IP_HOPPING_SUSPECT",
+                        "confidence_score": min(0.95, 0.70 + 0.05 * len(distinct_ips)),
+                        "chain_hops": len(distinct_ips),
+                        "mix_pool_size": len(distinct_countries),
+                        "evidence_details": evidence
+                    })
+
+        print(f"[+] Found {len(results):,} transactions linked to IP Hopping / Proxy Churn actors.")
+        return results
+
     def run_detection(self) -> pd.DataFrame:
         """Executes all pattern detectors and merges into unified DataFrame."""
         if self.df_tx is None:
@@ -208,8 +254,9 @@ class PatternDetector:
 
         cj_results = self.detect_coinjoin_mixing()
         peel_results = self.detect_peeling_chains()
+        ip_results = self.detect_ip_hopping()
 
-        all_results = cj_results + peel_results
+        all_results = cj_results + peel_results + ip_results
 
         if all_results:
             df_patterns = pd.DataFrame(all_results)

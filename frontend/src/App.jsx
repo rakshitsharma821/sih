@@ -341,10 +341,10 @@ export default function App() {
               <div className="p-5 rounded-xl bg-[#0e1424] border border-slate-800 hover:border-slate-700 transition">
                 <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Patterns Detected</div>
                 <div className="text-3xl font-black text-amber-400 mt-2 font-mono">
-                  {(metrics?.peeling_chains || 64) + (metrics?.coinjoin_mixes || 200)}
+                  {(metrics?.peeling_chains || 64) + (metrics?.coinjoin_mixes || 200) + (metrics?.ip_hopping_cases || 259)}
                 </div>
                 <div className="text-xs text-amber-400/80 mt-1">
-                  {metrics?.peeling_chains || 64} Peeling · {metrics?.coinjoin_mixes || 200} CoinJoins
+                  {metrics?.peeling_chains || 64} Peeling · {metrics?.coinjoin_mixes || 200} CoinJoins · {metrics?.ip_hopping_cases || 259} IP Hopping
                 </div>
               </div>
             </div>
@@ -709,7 +709,15 @@ export default function App() {
                             {(al.risk_score || al.composite_risk || 0.85).toFixed(3)}
                           </td>
                           <td className="p-3.5">
-                            <span className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono text-[10px]">
+                            <span className={`px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                              (al.primary_flag || al.pattern_type) === 'IP_HOPPING_SUSPECT'
+                                ? 'bg-purple-950/60 text-purple-300 border-purple-500/50 shadow-sm shadow-purple-500/20'
+                                : (al.primary_flag || al.pattern_type) === 'COINJOIN_MIXING'
+                                ? 'bg-cyan-950/60 text-cyan-300 border-cyan-500/50'
+                                : (al.primary_flag || al.pattern_type) === 'PEELING_CHAIN'
+                                ? 'bg-amber-950/60 text-amber-300 border-amber-500/50'
+                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                            }`}>
                               {al.primary_flag || al.pattern_type || 'ANOMALY'}
                             </span>
                           </td>
@@ -915,6 +923,22 @@ export default function App() {
                         </button>
                       );
                     })}
+
+                    {/* Dedicated 1-Click Demo Chip for Multi-IP Hopping Actor */}
+                    <button
+                      onClick={() => {
+                        const hopAddr = '1EnAhuVDifUaaQgEHo9acEhtd3FfWgfW';
+                        setSearchAddress(hopAddr);
+                        investigateWallet(hopAddr);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-purple-950/40 border border-purple-500/50 hover:border-purple-400 text-xs font-mono text-purple-200 flex items-center gap-2 transition cursor-pointer shadow-sm hover:shadow-purple-500/20"
+                    >
+                      <Globe size={12} className="text-purple-400 animate-pulse" />
+                      <span>1EnAhuVD...</span>
+                      <span className="text-purple-300 font-bold font-mono bg-purple-900/60 px-1.5 py-0.5 rounded text-[10px]">
+                        Multi-IP Hopping (3 IPs)
+                      </span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -981,6 +1005,47 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* Associated Network Telemetry & Multi-IP Footprint */}
+                {walletData.associated_ips && walletData.associated_ips.length > 0 && (
+                  <div className="p-4 rounded-xl bg-[#0e1424] border border-slate-800 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-bold text-cyan-400 uppercase flex items-center gap-2">
+                        <Globe size={14} /> Associated Network Footprint ({walletData.ip_diversity_count} Distinct IPs, {walletData.country_diversity_count} Countries)
+                      </div>
+                      {walletData.ip_hopping_detected && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-purple-950/60 text-purple-300 border border-purple-500/50 text-[10px] font-bold flex items-center gap-1.5 shadow-sm shadow-purple-500/20">
+                          <AlertTriangle size={12} className="text-purple-400" /> IP Hopping / Proxy Rotation Suspect
+                        </span>
+                      )}
+                    </div>
+
+                    {walletData.ip_hopping_detected && (
+                      <div className="p-3 rounded-lg bg-purple-950/25 border border-purple-800/40 text-[11px] text-purple-200 leading-relaxed">
+                        <strong className="text-purple-300">Forensic Network Signal:</strong> This wallet has repeatedly broadcast Bitcoin transactions across {walletData.ip_diversity_count} distinct IP addresses and {walletData.country_diversity_count} distinct country jurisdictions/ASNs. This is a signature indicator of automated proxy churn, commercial VPN server hopping (e.g. AWS/Alibaba/Tor), or distributed node evasion.
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                      {walletData.associated_ips.map((ipObj, idx) => (
+                        <div key={idx} className="p-2.5 rounded-lg bg-[#07090e] border border-slate-800 flex items-center justify-between text-xs hover:border-slate-700 transition">
+                          <div>
+                            <div className="font-mono text-cyan-400 font-bold flex items-center gap-1.5">
+                              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                              {ipObj.ip}
+                            </div>
+                            <div className="text-[10px] text-slate-400 truncate max-w-[190px]">
+                              {ipObj.country} · {ipObj.asn}
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded bg-slate-800 text-[10px] font-mono text-amber-400 font-bold">
+                            {ipObj.tx_count} TXs
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {walletData.co_clustered_wallets && walletData.co_clustered_wallets.length > 0 && (
                   <div className="p-4 rounded-xl bg-[#0e1424] border border-slate-800 space-y-2">

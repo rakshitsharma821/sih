@@ -22,6 +22,21 @@ def make_seed_db(output_db="seed_database.db"):
     query = f"""
     SELECT txid FROM transactions WHERE txid IN ({placeholders})
     UNION
+    SELECT txid FROM (
+        SELECT ti.txid
+        FROM tx_inputs ti
+        JOIN transactions t ON ti.txid = t.txid
+        WHERE ti.address IN (
+            SELECT ti2.address
+            FROM tx_inputs ti2
+            JOIN transactions t2 ON ti2.txid = t2.txid
+            WHERE t2.src_ip != '0.0.0.0'
+            GROUP BY ti2.address
+            HAVING COUNT(DISTINCT t2.src_ip) > 1
+        )
+        LIMIT 1500
+    )
+    UNION
     SELECT txid FROM (SELECT txid FROM transactions WHERE pattern_label = 'PEELING_CHAIN' LIMIT 800)
     UNION
     SELECT txid FROM (SELECT txid FROM transactions WHERE pattern_label = 'COINJOIN_MIXING' LIMIT 600)

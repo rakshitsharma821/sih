@@ -171,6 +171,11 @@ class AlertGenerator:
                     explanations.append(
                         f"CoinJoin privacy mixer signature: {len(in_addrs)} inputs unified into {len(out_addrs)} outputs with {mix_pool} equal denominations."
                     )
+                elif pat_label == "IP_HOPPING_SUSPECT":
+                    flags.append("IP_HOPPING_SUSPECT")
+                    explanations.append(
+                        pat_row.get("evidence_details", "Wallet exhibited multi-IP proxy/VPN churn across distinct Autonomous Systems.")
+                    )
 
                 if anom_score >= 0.65:
                     flags.append("STATISTICAL_ANOMALY")
