@@ -17,6 +17,7 @@ frontend/node_modules/
 
 # Local databases and generated runtime graphs
 *.db
+!seed_database.db
 *.db-journal
 *.db-shm
 *.db-wal

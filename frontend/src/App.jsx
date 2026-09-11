@@ -21,6 +21,8 @@ export default function App() {
 
   // Graph state
   const [graphCenterTx, setGraphCenterTx] = useState('');
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphEmpty, setGraphEmpty] = useState(false);
   const networkContainerRef = useRef(null);
   const networkInstanceRef = useRef(null);
 
@@ -104,11 +106,14 @@ export default function App() {
 
   const triggerGenerateDataset = async (numTxs = 5000) => {
     setIsGenerating(true);
-    setGenerateMsg('Generating hybrid Bitcoin transactions using 1-min Kaggle BTC/USD price data...');
+    setGenerateMsg(`Synthesizing ${numTxs.toLocaleString()} hybrid Bitcoin transactions with network telemetry...`);
     try {
       const res = await fetch(`/api/generate-dataset?num_tx=${numTxs}`, { method: 'POST' });
       const data = await res.json();
-      setGenerateMsg(data.message || 'Dataset generated successfully!');
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || `Server returned error code ${res.status}`);
+      }
+      setGenerateMsg(data.message || `Successfully generated ${numTxs.toLocaleString()} transactions!`);
       fetchMetrics();
       fetchAlerts();
       fetchTransactions();
@@ -142,11 +147,27 @@ export default function App() {
     }
   }, [activeTab, graphCenterTx]);
 
-  const loadGraphNetwork = async () => {
+  const loadGraphNetwork = async (overrideTx) => {
+    const targetTx = overrideTx !== undefined ? overrideTx : graphCenterTx;
+    setGraphLoading(true);
+    setGraphEmpty(false);
     try {
-      const url = graphCenterTx ? `/api/graph/subgraph?txid=${graphCenterTx}` : '/api/graph/subgraph';
+      const url = targetTx ? `/api/graph/subgraph?txid=${targetTx.trim()}` : '/api/graph/subgraph';
       const res = await fetch(url);
       const data = await res.json();
+
+      if (data.center && !targetTx) {
+        setGraphCenterTx(data.center);
+      }
+
+      if (!data.nodes || data.nodes.length === 0) {
+        setGraphEmpty(true);
+        if (networkInstanceRef.current) {
+          networkInstanceRef.current.destroy();
+          networkInstanceRef.current = null;
+        }
+        return;
+      }
 
       if (!networkContainerRef.current) return;
 
@@ -156,12 +177,12 @@ export default function App() {
           label: n.label,
           title: n.title,
           color: {
-            background: n.color || (n.group === 'transaction' ? '#2563eb' : '#f59e0b'),
+            background: n.color || (n.group === 'transaction' ? '#2563eb' : (n.group === 'ip' ? '#38bdf8' : '#f59e0b')),
             border: '#ffffff',
             highlight: { background: '#ef4444', border: '#ffffff' }
           },
           font: { color: '#f8fafc', size: n.is_center ? 13 : 11, face: 'monospace', bold: n.is_center },
-          shape: n.shape || (n.group === 'transaction' ? 'box' : 'dot'),
+          shape: n.shape || (n.group === 'transaction' ? 'box' : (n.group === 'ip' ? 'diamond' : 'dot')),
           size: n.size || (n.group === 'transaction' ? 24 : 16),
           margin: 8,
           shadow: n.is_center ? { enabled: true, color: 'rgba(239, 68, 68, 0.6)', size: 15 } : false
@@ -214,69 +235,74 @@ export default function App() {
       networkInstanceRef.current = new Network(networkContainerRef.current, { nodes, edges }, options);
     } catch (err) {
       console.error("Graph load error:", err);
+      setGraphEmpty(true);
+    } finally {
+      setGraphLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col selection:bg-amber-500 selection:text-black">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-800/80 bg-[#0b0f19]/90 backdrop-blur sticky top-0 z-50 px-6 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl">
-            ₿
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-lg tracking-wider text-slate-100">CHAINSENTINEL</span>
-              <span className="text-[10px] uppercase font-bold tracking-widest bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/20">
-                SIH26146 SOC
-              </span>
+      {/* Unified Sticky Header & Navigation Bar */}
+      <div className="sticky top-0 z-50 bg-[#0b0f19]/95 backdrop-blur border-b border-slate-800 shadow-md">
+        <header className="px-6 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20 text-slate-950 font-black text-xl">
+              ₿
             </div>
-            <p className="text-xs text-slate-400 font-mono">AI-Powered Bitcoin Traffic Forensics & Anomaly Monitoring</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-lg tracking-wider text-slate-100">CHAINSENTINEL</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded border border-amber-500/20">
+                  SIH26146 SOC
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-mono">AI-Powered Bitcoin Traffic Forensics & Anomaly Monitoring</p>
+            </div>
           </div>
-        </div>
 
-        {/* Status Pill */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-xs font-medium text-emerald-400">Offline Local Node Online</span>
+          {/* Status Pill */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded-full">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-medium text-emerald-400">Offline Local Node Online</span>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Navigation Tabs Bar */}
-      <nav className="border-b border-slate-800 bg-[#0d1322] px-6 flex gap-1 overflow-x-auto">
-        {[
-          { id: 'threats', label: 'Threat Overview', icon: Activity },
-          { id: 'dataset', label: 'Dataset & Live Feed', icon: Database },
-          { id: 'entities', label: 'Entity Clusters', icon: Layers },
-          { id: 'graph', label: 'Link-Analysis Graph', icon: GitFork },
-          { id: 'alerts', label: `Forensic Alerts (${metrics?.alert_count || 150})`, icon: ShieldAlert },
-          { id: 'suspect', label: 'Suspect Wallet Profiler', icon: Search },
-          { id: 'pipeline', label: 'Pipeline Control', icon: Cpu },
-        ].map(tab => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2.5 px-5 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                isActive 
-                  ? 'border-amber-400 text-amber-400 bg-amber-400/5' 
-                  : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
-              }`}
-            >
-              <Icon size={16} className={isActive ? 'text-amber-400' : 'text-slate-500'} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </nav>
+        {/* Navigation Tabs Bar */}
+        <nav className="border-t border-slate-800/80 bg-[#0d1322]/90 px-6 flex gap-1 overflow-x-auto">
+          {[
+            { id: 'threats', label: 'Threat Overview', icon: Activity },
+            { id: 'dataset', label: 'Dataset & Live Feed', icon: Database },
+            { id: 'entities', label: 'Entity Clusters', icon: Layers },
+            { id: 'graph', label: 'Link-Analysis Graph', icon: GitFork },
+            { id: 'alerts', label: `Forensic Alerts (${metrics?.alert_count || 150})`, icon: ShieldAlert },
+            { id: 'suspect', label: 'Suspect Wallet Profiler', icon: Search },
+            { id: 'pipeline', label: 'Pipeline Control', icon: Cpu },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2.5 px-5 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
+                  isActive 
+                    ? 'border-amber-400 text-amber-400 bg-amber-400/5' 
+                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                }`}
+              >
+                <Icon size={16} className={isActive ? 'text-amber-400' : 'text-slate-500'} />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* Main Content Area */}
       <main className="flex-1 p-6 max-w-7xl w-full mx-auto space-y-6">
@@ -780,10 +806,22 @@ export default function App() {
             {/* Graph Canvas & Side Legend Guide */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
               {/* Vis.js Canvas */}
-              <div 
-                ref={networkContainerRef} 
-                className="lg:col-span-3 h-[600px] rounded-xl bg-[#090d18] border border-slate-800 relative overflow-hidden shadow-inner cursor-grab active:cursor-grabbing"
-              />
+              <div className="lg:col-span-3 h-[600px] rounded-xl bg-[#090d18] border border-slate-800 relative overflow-hidden shadow-inner cursor-grab active:cursor-grabbing">
+                <div ref={networkContainerRef} className="w-full h-full" />
+                {graphLoading && (
+                  <div className="absolute inset-0 bg-[#090d18]/85 flex flex-col items-center justify-center gap-3 text-slate-300 z-10 pointer-events-none">
+                    <RefreshCw size={28} className="animate-spin text-amber-400" />
+                    <span className="text-xs font-mono">Querying graph topology & relational UTXO flows...</span>
+                  </div>
+                )}
+                {!graphLoading && graphEmpty && (
+                  <div className="absolute inset-0 bg-[#090d18]/90 flex flex-col items-center justify-center gap-3 text-slate-400 p-6 text-center z-10">
+                    <GitFork size={36} className="text-slate-600 mb-1" />
+                    <span className="text-sm font-semibold text-slate-300">No graph topology found for this identifier</span>
+                    <span className="text-xs text-slate-500 max-w-sm">Enter a valid Transaction ID (TXID) above or click "Trace Graph" from the Forensic Alerts table.</span>
+                  </div>
+                )}
+              </div>
 
               {/* Side Guide / How to Interpret for Judges & Officers */}
               <div className="p-4 rounded-xl bg-[#0e1424] border border-slate-800 space-y-4 text-xs">
